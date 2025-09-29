@@ -1,46 +1,53 @@
+from flask import Flask, request, jsonify
 import pickle
-import joblib
 import pandas as pd
 
-# Load the scaler and the model
-scaler = pickle.load(open('scaler.pkl', 'rb'))
-model = pickle.load(open('random_forest_model.pkl', 'rb'))
+app = Flask(__name__)
 
-def predict_churn(data):
-    """
-    Predicts churn based on input data.
+# Load the saved model and scaler
+with open('rf_model.pkl', 'rb') as model_file:
+    rf_model = pickle.load(model_file)
 
-    Args:
-        data (pd.DataFrame): A DataFrame containing the features for prediction.
+with open('scaler.pkl', 'rb') as scaler_file:
+    scaler = pickle.load(scaler_file)
 
-    Returns:
-        numpy.ndarray: The predicted churn values.
-    """
-    # Scale the input data
-    scaled_data = scaler.transform(data)
+@app.route('/predict', methods=['POST'])
+def predict():
+    try:
+        # Get the data from the request
+        data = request.get_json(force=True)
+        df_predict = pd.DataFrame([data])
 
-    # Make a prediction
-    prediction = model.predict(scaled_data)
+        # Ensure the column order matches the training data used for the scaler and model
+        # This is crucial for correct scaling and prediction.
+        # We need the columns from X_train, which was used for fitting the scaler and model.
+        # Assuming the order of columns in X_train is the expected order.
+        # If the input data is missing columns, add them with default values (e.g., 0 or median)
+        # If the input data has extra columns, they will be ignored by reindexing.
+        # This assumes X_train is available in the environment, which it is from previous steps.
 
-    return prediction
+        # Get the column names from X_train
+        train_cols = X_train.columns
+
+        # Reindex the input DataFrame to match the training columns
+        df_predict = df_predict.reindex(columns=train_cols, fill_value=0)
+
+        # Apply the loaded scaler to the numerical features
+        # Identify numerical columns in the input DataFrame
+        numerical_cols_predict = df_predict.select_dtypes(include=np.number).columns
+        df_predict[numerical_cols_predict] = scaler.transform(df_predict[numerical_cols_predict])
+
+        # Make predictions
+        prediction = rf_model.predict(df_predict)
+
+        # Return the prediction as JSON
+        # The prediction is a numpy array, convert it to a list for JSON serialization
+        return jsonify({'prediction': prediction.tolist()})
+
+    except Exception as e:
+        return jsonify({'error': str(e)})
 
 if __name__ == '__main__':
-    # This is a placeholder for how you might use the function
-    # In a real application, you would get new data from a request or file
-    # For demonstration purposes, let's create a dummy data sample
-    # Note: The dummy data should have the same columns and structure as the
-    # data used for training after one-hot encoding and feature engineering.
-    # Creating a realistic dummy data requires knowing the exact column names
-    # and their order after preprocessing. This is a simplified example.
-
-    # Example of how you might prepare dummy data - replace with actual data handling
-    # This part is highly dependent on the preprocessing steps and feature columns
-    # For a real application, you would need to replicate the preprocessing pipeline
-    # used for training.
-    print("App is ready to make predictions.")
-    print("Example usage requires preparing input data in the correct format.")
-
-    # Example (requires defining dummy_data based on your feature columns)
-    # dummy_data = pd.DataFrame(...) # Create a DataFrame with appropriate columns
-    # prediction = predict_churn(dummy_data)
-    # print(f"Prediction for dummy data: {prediction}")
+    # For development, run with debug=True
+    # In production, use a production-ready WSGI server like Gunicorn or uWSGI
+    app.run(debug=True)
